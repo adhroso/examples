@@ -1,0 +1,970 @@
+{
+  "Comment": "This pipeline is used to process RNASeq data using Amazon States Language by fanning out AWS Batch job (each sample is processed concurrently)",
+  "StartAt": "Pass",
+  "States": {
+    "Pass": {
+      "Type": "Pass",
+      "InputPath": "$",
+      "Parameters": {
+        "workflow": {
+          "name.$": "$$.StateMachine.Name",
+          "execution.$": "$$.Execution.Name"
+        },
+        "params.$": "$.params",
+        "jobdefs": {
+          "scape": "arn:aws:batch:us-east-1:947682355454:job-definition/tap-tox-awsscape:8",
+          "rbase": "arn:aws:batch:us-east-1:947682355454:job-definition/tap-tox-rbase:5",
+          "deseq": "arn:aws:batch:us-east-1:947682355454:job-definition/tap-tox-deseq:9",
+          "rcore": "arn:aws:batch:us-east-1:947682355454:job-definition/tap-tox-rcore:7",
+          "gsdcli": "arn:aws:batch:us-east-1:947682355454:job-definition/tap-tox-gsdcli:2",
+          "pod": "arn:aws:batch:us-east-1:947682355454:job-definition/tap-tox-pod:2"
+        }
+      },
+      "Next": "GSDLI"
+    },
+    "GSDLI": {
+      "Type": "Map",
+      "InputPath": "$",
+      "ResultPath": null,
+      "MaxConcurrency": 100,
+      "ItemReader": {
+        "ReaderConfig": {
+          "InputType": "CSV",
+          "CSVHeaderLocation": "FIRST_ROW"
+        },
+        "Resource": "arn:aws:states:::s3:getObject",
+        "Parameters": {
+          "Bucket.$": "$.params.data.bucket",
+          "Key.$": "$.params.data.key"
+        }
+      },
+      "Parameters": {
+        "workflow.$": "$.workflow",
+        "params.$": "$.params",
+        "input.$": "$$.Map.Item.Value",
+        "jobdefs.$": "$.jobdefs"
+      },
+      "Iterator": {
+        "StartAt": "GSDCLI",
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "States": {
+          "GSDCLI": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "GSDCLI",
+              "JobDefinition.$": "$.jobdefs.gsdcli",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "LIMS_ID",
+                    "Value.$": "$.params.data.lims_id"
+                  },
+                  {
+                    "Name": "SAMPLE_ID",
+                    "Value.$": "$.input.SAMPLE_ID"
+                  }
+                ],
+                "Command": [
+                  "aws-azure-login --profile gsd --no-prompt --no-sandbox && export AWS_PROFILE=gsd ;",
+                  "python /opt/bin/gsdcli -s ${SAMPLE_ID} -o output-dir ;",
+                  "mkdir -p input/reads/; mv output-dir/*singles.fq.gz input/reads/ ;",
+                  "aws-azure-login --profile sb --no-prompt --no-sandbox && export AWS_PROFILE=sb ;",
+                  "aws s3 cp input/reads/ ${SOURCE_DATA_PREFIX}/input/reads/ --recursive;"
+                ]
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "Fan out batch jobs"
+    },
+    "Fan out batch jobs": {
+      "Comment": "Start multiple executions of batch job depending on pre-processed data",
+      "Type": "Map",
+      "InputPath": "$",
+      "ResultPath": null,
+      "MaxConcurrency": 60,
+      "ItemReader": {
+        "ReaderConfig": {
+          "InputType": "CSV",
+          "CSVHeaderLocation": "FIRST_ROW"
+        },
+        "Resource": "arn:aws:states:::s3:getObject",
+        "Parameters": {
+          "Bucket.$": "$.params.data.bucket",
+          "Key.$": "$.params.data.key"
+        }
+      },
+      "Parameters": {
+        "workflow.$": "$.workflow",
+        "params.$": "$.params",
+        "input.$": "$$.Map.Item.Value",
+        "jobdefs.$": "$.jobdefs"
+      },
+      "Iterator": {
+        "StartAt": "FastQC Before",
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "States": {
+          "FastQC Before": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "FastQC_Before",
+              "JobDefinition.$": "$.jobdefs.scape",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_INPUTS",
+                    "Value": "${SOURCE_DATA_PREFIX}/input/reads/${FILENAME}"
+                  },
+                  {
+                    "Name": "JOB_OUTPUTS",
+                    "Value": "*.zip *.html"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "1.FastQC_Before"
+                  },
+                  {
+                    "Name": "SAMPLE_ID",
+                    "Value.$": "$.input.SAMPLE_ID"
+                  },
+                  {
+                    "Name": "FILENAME",
+                    "Value.$": "$.input.FILENAME"
+                  }
+                ],
+                "Command": [
+                  "/usr/local/bin/fastqc -t 16",
+                  "-q ${FILENAME};"
+                ]
+              }
+            },
+            "Next": "Remove Contaminants"
+          },
+          "Remove Contaminants": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "Remove_Contaminants",
+              "JobDefinition.$": "$.jobdefs.scape",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_INPUTS",
+                    "Value": "${SOURCE_DATA_PREFIX}/input/reads/${FILENAME} ${CONTANTMINANTS}"
+                  },
+                  {
+                    "Name": "JOB_OUTPUTS",
+                    "Value": "*.raw_read_counts.txt *_bbmap.stdout_stats.txt *_bbmap.trimstats.txt *.clean.fastq.gz"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "2.QC/remove_contaminants/bbmap"
+                  },
+                  {
+                    "Name": "SAMPLE_ID",
+                    "Value.$": "$.input.SAMPLE_ID"
+                  },
+                  {
+                    "Name": "FILENAME",
+                    "Value.$": "$.input.FILENAME"
+                  },
+                  {
+                    "Name": "CONTANTMINANTS",
+                    "Value.$": "$.params.reference.contaminant"
+                  },
+                  {
+                    "Name": "CONTANTMINANTS_ID",
+                    "Value.$": "$.params.reference.contaminant_id"
+                  }
+                ],
+                "Command": [
+                  "bbmap.sh",
+                  "in=${FILENAME}",
+                  "outu=${SAMPLE_ID}.clean.fastq.gz",
+                  "ref=${CONTANTMINANTS_ID}",
+                  "maxindel=1",
+                  "minid=0.95",
+                  "nodisk",
+                  "statsfile=${SAMPLE_ID}_bbmap.trimstats.txt >& ${SAMPLE_ID}_bbmap.stdout_stats.txt; ",
+                  "grep 'Reads Used:' ${SAMPLE_ID}_bbmap.trimstats.txt | awk -v id=${SAMPLE_ID} '{print id\"\t\"$3}' > ${SAMPLE_ID}.raw_read_counts.txt; "
+                ]
+              }
+            },
+            "Next": "Remove Adapters"
+          },
+          "Remove Adapters": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "BBDUK_Remove_Adapters",
+              "JobDefinition.$": "$.jobdefs.scape",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_INPUTS",
+                    "Value": "${JOB_OUTPUT_PREFIX}/2.QC/remove_contaminants/bbmap/${SAMPLE_ID}.clean.fastq.gz ${ADAPTER}"
+                  },
+                  {
+                    "Name": "JOB_OUTPUTS",
+                    "Value": "*_bbduk.stdout_stats.txt *_bbduk.trimstats.txt *_bbduk.refstats.txt *.noncontaminant_read_counts.txt *_trimmed_clean.fastq.gz"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "3.Trimmed"
+                  },
+                  {
+                    "Name": "SAMPLE_ID",
+                    "Value.$": "$.input.SAMPLE_ID"
+                  },
+                  {
+                    "Name": "ADAPTER",
+                    "Value.$": "$.params.reference.adapter"
+                  },
+                  {
+                    "Name": "ADAPTER_ID",
+                    "Value.$": "$.params.reference.adapter_id"
+                  },
+                  {
+                    "Name": "TRIMQ_MIN_LENGTH",
+                    "Value.$": "$.params.quantification.trimq_min_length"
+                  },
+                  {
+                    "Name": "TRIMQ",
+                    "Value.$": "$.params.quantification.trimq"
+                  }
+                ],
+                "Command": [
+                  "bbduk.sh",
+                  "in=${SAMPLE_ID}.clean.fastq.gz",
+                  "out=${SAMPLE_ID}_trimmed_clean.fastq.gz",
+                  "ref=${ADAPTER_ID}",
+                  "minlength=${TRIMQ_MIN_LENGTH}",
+                  "trimq=${TRIMQ}",
+                  "ktrim=r",
+                  "qtrim=rl",
+                  "k=23",
+                  "mink=11",
+                  "hdist=1",
+                  "tbo",
+                  "stats=${SAMPLE_ID}_bbduk.trimstats.txt",
+                  "refstats=${SAMPLE_ID}_bbduk.refstats.txt >& ${SAMPLE_ID}_bbduk.stdout_stats.txt ;",
+                  "grep '#Total' ${SAMPLE_ID}_bbduk.trimstats.txt | awk -v id=${SAMPLE_ID} '{print id\"\t\"$2}' > ${SAMPLE_ID}.noncontaminant_read_counts.txt; "
+                ]
+              }
+            },
+            "Next": "FastQC After"
+          },
+          "FastQC After": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "FastQC_After",
+              "JobDefinition.$": "$.jobdefs.scape",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_INPUTS",
+                    "Value": "${JOB_OUTPUT_PREFIX}/3.Trimmed/${SAMPLE_ID}_trimmed_clean.fastq.gz"
+                  },
+                  {
+                    "Name": "JOB_OUTPUTS",
+                    "Value": "*.html *.zip"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "4.FastQC_After"
+                  },
+                  {
+                    "Name": "SAMPLE_ID",
+                    "Value.$": "$.input.SAMPLE_ID"
+                  },
+                  {
+                    "Name": "FILENAME",
+                    "Value": "${SAMPLE_ID}_trimmed_clean.fastq.gz"
+                  }
+                ],
+                "Command": [
+                  "fastqc -t 16 -q ${FILENAME}"
+                ]
+              }
+            },
+            "Next": "Salmon"
+          },
+          "Salmon": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "Salmon_Quantification",
+              "JobDefinition.$": "$.jobdefs.scape",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Vcpus": 16,
+                "Memory": 32000,
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUTS",
+                    "Value": "*.txt *meta_info.json"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "5.Counts/read_counts"
+                  },
+                  {
+                    "Name": "JOB_INPUTS",
+                    "Value": "${JOB_OUTPUT_PREFIX}/3.Trimmed/${SAMPLE_ID}_trimmed_clean.fastq.gz"
+                  },
+                  {
+                    "Name": "SAMPLE_ID",
+                    "Value.$": "$.input.SAMPLE_ID"
+                  },
+                  {
+                    "Name": "FILENAME",
+                    "Value": "${SAMPLE_ID}_trimmed_clean.fastq.gz"
+                  },
+                  {
+                    "Name": "SALMON_LIBTYPE",
+                    "Value.$": "$.params.quantification.salmon_libtype"
+                  },
+                  {
+                    "Name": "SALMON_INDEX_PATH",
+                    "Value.$": "$.params.reference.salmon_index_path"
+                  },
+                  {
+                    "Name": "SALMON_INDEX",
+                    "Value.$": "$.params.reference.salmon_index"
+                  }
+                ],
+                "Command": [
+                  "aws s3 cp --recursive ${SALMON_INDEX_PATH}/ ${SALMON_INDEX}/ ;",
+                  "ls -ld ${SALMON_INDEX} ;",
+                  "salmon",
+                  "--no-version-check",
+                  "quant",
+                  "--threads 16",
+                  "--seqBias",
+                  "--validateMappings",
+                  "--numBootstraps 100",
+                  "-l ${SALMON_LIBTYPE}",
+                  "--writeUnmappedNames",
+                  "-i ${SALMON_INDEX}",
+                  "-r ${FILENAME}",
+                  "-o salmon_${SAMPLE_ID};",
+                  "grep 'num_processed' salmon_${SAMPLE_ID}/aux_info/meta_info.json | tr -d ',' | awk -v id=$SAMPLE_ID '{print id\"\t\"$2}' > ${SAMPLE_ID}_trimmed_read_counts.txt; ",
+                  "grep 'num_mapped' salmon_${SAMPLE_ID}/aux_info/meta_info.json | tr -d ',' | awk -v id=$SAMPLE_ID '{print id\"\t\"$2}' > ${SAMPLE_ID}_mapped_read_counts.txt; ",
+                  "aws s3 cp --recursive salmon_${SAMPLE_ID} ${JOB_OUTPUT_PREFIX}/5.Counts/quant/salmon_${SAMPLE_ID}/ ;",
+                  "cp salmon_${SAMPLE_ID}/aux_info/meta_info.json dummy_meta_info.json"
+                ]
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "Quant Summary",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "BackoffRate": 2,
+          "MaxAttempts": 3,
+          "Comment": "Rety for failed state",
+          "JitterStrategy": "FULL",
+          "IntervalSeconds": 120
+        }
+      ]
+    },
+    "Quant Summary": {
+      "Type": "Task",
+      "InputPath": "$",
+      "ResultPath": null,
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "Salmon_Summarize",
+        "JobDefinition.$": "$.jobdefs.rcore",
+        "JobQueue.$": "$.params.environment.queue",
+        "ContainerOverrides": {
+          "Environment": [
+            {
+              "Name": "JOB_WORKFLOW_NAME",
+              "Value.$": "$.workflow.name"
+            },
+            {
+              "Name": "JOB_WORKFLOW_EXECUTION",
+              "Value.$": "$.workflow.execution"
+            },
+            {
+              "Name": "SOURCE_DATA_PREFIX",
+              "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_PREFIX",
+              "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+            },
+            {
+              "Name": "JOB_INPUTS",
+              "Value": "${TX2GENE}"
+            },
+            {
+              "Name": "JOB_OUTPUTS",
+              "Value": "*.csv"
+            },
+            {
+              "Name": "JOB_OUTPUT_SUFFIX",
+              "Value": "6.Summary"
+            },
+            {
+              "Name": "TX2GENE",
+              "Value.$": "$.params.reference.txt2gene"
+            },
+            {
+              "Name": "LIMS_ID",
+              "Value.$": "$.params.data.lims_id"
+            }
+          ],
+          "Command": [
+            "aws s3 cp --recursive ${JOB_OUTPUT_PREFIX}/5.Counts/quant counts ;",
+            "r.summarize.R counts/ ${TX2GENE##*/} ;",
+            "sed 's/^,/GeneID,/' < tx2gene_NumReads.csv | tr ',' '\t' > ${LIMS_ID}_counts.txt; ",
+            "aws s3 cp ${LIMS_ID}_counts.txt ${SOURCE_DATA_PREFIX}/input/ ;",
+            "mkdir -p raw clean quant extra;",
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/2.QC/remove_contaminants/bbmap/ raw --recursive --exclude \"*\" --include \"*raw_read_counts.txt\" ;",
+            "ls -1v raw/*  | xargs cat > extra/raw_reads.txt; ",
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/3.Trimmed/ clean --recursive --exclude \"*\" --include \"*noncontaminant_read_counts.txt\" ;",
+            "ls -1v clean/*  | xargs cat > extra/clean_reads.txt ;",
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/5.Counts/read_counts/ quant --recursive ;",
+            "ls -1v quant/*_mapped_read_counts.txt | xargs cat > extra/mapped_reads.txt ;",
+            "ls -1v quant/*_trimmed_read_counts.txt | xargs cat > extra/trimmed_reads.txt ;",
+            "paste extra/raw_reads.txt extra/trimmed_reads.txt extra/clean_reads.txt extra/mapped_reads.txt | cut -f1,2,4,6,8 | sort -k1.4n > extra/stats_table.noheader.txt ;",
+            "echo -e \"SampleID\tNumRawReads\tNumTrimmedReads\tNumCleanReads\tNumMappedReads\"",
+            "| cat - extra/stats_table.noheader.txt > extra/${LIMS_ID}_stats.txt ;",
+            "aws s3 cp extra/${LIMS_ID}_stats.txt ${SOURCE_DATA_PREFIX}/input/ ;",
+            "aws s3 cp extra ${JOB_OUTPUT_PREFIX}/${JOB_OUTPUT_SUFFIX}/extra/ --recursive ;"
+          ]
+        }
+      },
+      "Next": "DEQC"
+    },
+    "DEQC": {
+      "Type": "Task",
+      "InputPath": "$",
+      "ResultPath": null,
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "DEQC",
+        "JobDefinition.$": "$.jobdefs.deseq",
+        "JobQueue.$": "$.params.environment.queue",
+        "ContainerOverrides": {
+          "Vcpus": 16,
+          "Memory": 32000,
+          "Environment": [
+            {
+              "Name": "JOB_WORKFLOW_NAME",
+              "Value.$": "$.workflow.name"
+            },
+            {
+              "Name": "JOB_WORKFLOW_EXECUTION",
+              "Value.$": "$.workflow.execution"
+            },
+            {
+              "Name": "SOURCE_DATA_PREFIX",
+              "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_PREFIX",
+              "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_SUFFIX",
+              "Value": "7.Deseq2"
+            },
+            {
+              "Name": "JOB_OUTPUTS",
+              "Value": "output/*.txt"
+            },
+            {
+              "Name": "COUNTS",
+              "Value.$": "$.params.deseq.counts"
+            },
+            {
+              "Name": "META",
+              "Value.$": "$.params.deseq.metadata"
+            },
+            {
+              "Name": "COMPLIST",
+              "Value.$": "$.params.deseq.complist"
+            },
+            {
+              "Name": "CSV_COMPLIST",
+              "Value.$": "$.params.deseq.comparison"
+            },
+            {
+              "Name": "MODELS",
+              "Value.$": "$.params.deseq.models"
+            },
+            {
+              "Name": "GENEANNO",
+              "Value.$": "$.params.reference.gene_anno"
+            },
+            {
+              "Name": "GENEANNO_ID",
+              "Value.$": "$.params.reference.gene_anno_id"
+            },
+            {
+              "Name": "STATS",
+              "Value.$": "$.params.deseq.stats"
+            },
+            {
+              "Name": "EXCLUDESAMPLES",
+              "Value.$": "$.params.deseq.exclude"
+            },
+            {
+              "Name": "LIMS_ID",
+              "Value.$": "$.params.data.lims_id"
+            }
+          ],
+          "Command": [
+            "mkdir -p $PWD/output ;",
+            "aws s3 cp ${SOURCE_DATA_PREFIX}/input/ $PWD/input/ --recursive --exclude '*' --include '*.txt' ;",
+            "aws s3 cp ${GENEANNO} $PWD/input/ ;",
+            "DEQC.R --wd $PWD/output --counts $PWD/input/${COUNTS} --sample_metadata $PWD/input/${META}",
+            "--comp_list $PWD/input/${COMPLIST} --gene_anno $PWD/input/${GENEANNO_ID} --stats $PWD/input/${STATS} ;",
+            "tr '\t' ',' < $PWD/input/${COMPLIST} > $PWD/input/${CSV_COMPLIST} ;",
+            "cat $PWD/input/${CSV_COMPLIST} | cut -d,",
+            "-f 1 | sed '1d' | sort -u > tmp.txt; echo 'Models' | cat /dev/stdin tmp.txt > $PWD/input/${MODELS} ;",
+            "aws s3 cp $PWD/input/${CSV_COMPLIST} ${SOURCE_DATA_PREFIX}/input/ ;",
+            "aws s3 cp $PWD/input/${MODELS} ${SOURCE_DATA_PREFIX}/input/ ;"
+          ]
+        }
+      },
+      "Next": "Deseq Modeling"
+    },
+    "Deseq Modeling": {
+      "Comment": "Start multiple executions of batch job depending on pre-processed data",
+      "Type": "Map",
+      "InputPath": "$",
+      "ResultPath": null,
+      "MaxConcurrency": 100,
+      "ItemReader": {
+        "ReaderConfig": {
+          "InputType": "CSV",
+          "CSVHeaderLocation": "FIRST_ROW"
+        },
+        "Resource": "arn:aws:states:::s3:getObject",
+        "Parameters": {
+          "Bucket.$": "$.params.data.bucket",
+          "Key.$": "States.Format('{}/input/{}',$.params.environment.EXECUTION_PATH,$.params.deseq.models)"
+        }
+      },
+      "Parameters": {
+        "workflow.$": "$.workflow",
+        "params.$": "$.params",
+        "input.$": "$$.Map.Item.Value",
+        "jobdefs.$": "$.jobdefs"
+      },
+      "Iterator": {
+        "StartAt": "DseqModel",
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "States": {
+          "DseqModel": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "DseqModel",
+              "JobDefinition.$": "$.jobdefs.deseq",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Vcpus": 16,
+                "Memory": 32000,
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "7.Deseq2"
+                  },
+                  {
+                    "Name": "JOB_OUTPUTS",
+                    "Value": "output/*.txt output/*.rda"
+                  },
+                  {
+                    "Name": "MODEL_NAME",
+                    "Value.$": "$.input.Models"
+                  },
+                  {
+                    "Name": "LIMS_ID",
+                    "Value.$": "$.params.data.lims_id"
+                  }
+                ],
+                "Command": [
+                  "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/ $PWD/output/ --recursive --exclude '*' --include '*.txt' ;",
+                  "Rscript /opt/bin/DEModel.R --wd $PWD/output --mod ${MODEL_NAME} ;"
+                ]
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "DESeq Predict"
+    },
+    "DESeq Predict": {
+      "Comment": "Start multiple executions of batch job depending on pre-processed data",
+      "Type": "Map",
+      "InputPath": "$",
+      "ResultPath": null,
+      "MaxConcurrency": 100,
+      "ItemReader": {
+        "ReaderConfig": {
+          "InputType": "CSV",
+          "CSVHeaderLocation": "FIRST_ROW"
+        },
+        "Resource": "arn:aws:states:::s3:getObject",
+        "Parameters": {
+          "Bucket.$": "$.params.data.bucket",
+          "Key.$": "States.Format('{}/input/{}',$.params.environment.EXECUTION_PATH,$.params.deseq.comparison)"
+        }
+      },
+      "Parameters": {
+        "workflow.$": "$.workflow",
+        "params.$": "$.params",
+        "input.$": "$$.Map.Item.Value",
+        "jobdefs.$": "$.jobdefs"
+      },
+      "Iterator": {
+        "StartAt": "DESeqPredict",
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "States": {
+          "DESeqPredict": {
+            "Type": "Task",
+            "InputPath": "$",
+            "ResultPath": null,
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+              "JobName": "DeSeqPredict",
+              "JobDefinition.$": "$.jobdefs.deseq",
+              "JobQueue.$": "$.params.environment.queue",
+              "ContainerOverrides": {
+                "Vcpus": 16,
+                "Memory": 32000,
+                "Environment": [
+                  {
+                    "Name": "JOB_WORKFLOW_NAME",
+                    "Value.$": "$.workflow.name"
+                  },
+                  {
+                    "Name": "JOB_WORKFLOW_EXECUTION",
+                    "Value.$": "$.workflow.execution"
+                  },
+                  {
+                    "Name": "SOURCE_DATA_PREFIX",
+                    "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_PREFIX",
+                    "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+                  },
+                  {
+                    "Name": "JOB_OUTPUT_SUFFIX",
+                    "Value": "7.Deseq2"
+                  },
+                  {
+                    "Name": "CONTROL",
+                    "Value.$": "$.input.Control"
+                  },
+                  {
+                    "Name": "CONDITION",
+                    "Value.$": "$.input.Condition"
+                  },
+                  {
+                    "Name": "SETNAME",
+                    "Value.$": "$.input.SetName"
+                  },
+                  {
+                    "Name": "DOSE",
+                    "Value.$": "$.input.Dose"
+                  },
+                  {
+                    "Name": "PLATE",
+                    "Value.$": "$.input.PlateName"
+                  },
+                  {
+                    "Name": "GENEANNO",
+                    "Value.$": "$.params.reference.gene_anno"
+                  },
+                  {
+                    "Name": "GENEANNO_ID",
+                    "Value.$": "$.params.reference.gene_anno_id"
+                  },
+                  {
+                    "Name": "LIMS_ID",
+                    "Value.$": "$.params.data.lims_id"
+                  }
+                ],
+                "Command": [
+                  "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/ $PWD/output/ --recursive --exclude '*' --include '*.${CONTROL}.rda' ;",
+                  "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/gene_info.txt $PWD/output/ ;",
+                  "Rscript /opt/bin/DEPredict.R --wd $PWD/output --control ${CONTROL} --condition ${CONDITION}",
+                  "--set_name ${SETNAME} --dose ${DOSE} --plate ${PLATE} --gene_anno $PWD/output/gene_info.txt ;",
+                  "rm $PWD/output/*.rda $PWD/output/gene_info.txt ;",
+                  "aws s3 cp $PWD/output/ ${JOB_OUTPUT_PREFIX}/7.Deseq2/ --recursive ;"
+                ]
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "DECombine"
+    },
+    "DECombine": {
+      "Type": "Task",
+      "InputPath": "$",
+      "ResultPath": null,
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "DECombine",
+        "JobDefinition.$": "$.jobdefs.deseq",
+        "JobQueue.$": "$.params.environment.queue",
+        "ContainerOverrides": {
+          "Vcpus": 16,
+          "Memory": 32000,
+          "Environment": [
+            {
+              "Name": "JOB_WORKFLOW_NAME",
+              "Value.$": "$.workflow.name"
+            },
+            {
+              "Name": "JOB_WORKFLOW_EXECUTION",
+              "Value.$": "$.workflow.execution"
+            },
+            {
+              "Name": "SOURCE_DATA_PREFIX",
+              "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_PREFIX",
+              "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_SUFFIX",
+              "Value": "7.Deseq2"
+            },
+            {
+              "Name": "JOB_OUTPUTS",
+              "Value": "output/counts_DE_all* output/*.lfc_padj_pval.txt output/*.lfc.txt output/*.padj.txt"
+            },
+            {
+              "Name": "LIMS_ID",
+              "Value.$": "$.params.data.lims_id"
+            }
+          ],
+          "Command": [
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/counts_table.normalized.txt $PWD/output/ ;",
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/comparison_list.txt $PWD/output/ ;",
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/ $PWD/output/ --recursive --exclude '*' --include '*.deseq.txt' ;",
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/ $PWD/output/ --recursive --exclude '*' --include 'counts_DE*' ;",
+            "Rscript /opt/bin/DESummarize.R --wd $PWD/output ;"
+          ]
+        }
+      },
+      "Next": "POD"
+    },
+    "POD": {
+      "Type": "Task",
+      "InputPath": "$",
+      "ResultPath": null,
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "DECombine",
+        "JobDefinition.$": "$.jobdefs.pod",
+        "JobQueue.$": "$.params.environment.queue",
+        "ContainerOverrides": {
+          "Vcpus": 16,
+          "Memory": 32000,
+          "Environment": [
+            {
+              "Name": "JOB_WORKFLOW_NAME",
+              "Value.$": "$.workflow.name"
+            },
+            {
+              "Name": "JOB_WORKFLOW_EXECUTION",
+              "Value.$": "$.workflow.execution"
+            },
+            {
+              "Name": "SOURCE_DATA_PREFIX",
+              "Value.$": "$.params.environment.SOURCE_DATA_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_PREFIX",
+              "Value.$": "$.params.environment.JOB_OUTPUT_PREFIX"
+            },
+            {
+              "Name": "JOB_OUTPUT_SUFFIX",
+              "Value": "8.POD"
+            },
+            {
+              "Name": "COUNTS",
+              "Value.$": "$.params.pod.counts"
+            },
+            {
+              "Name": "SPECIESCODE",
+              "Value.$": "$.params.pod.species"
+            },
+            {
+              "Name": "LIMS_ID",
+              "Value.$": "$.params.data.lims_id"
+            }
+          ],
+          "Command": [
+            "aws s3 cp ${JOB_OUTPUT_PREFIX}/7.Deseq2/${COUNTS} . ;",
+            "Rscript /src/RunBMDExpress3InputFile.R ${COUNTS} ${SPECIESCODE} BASE2 1.5 0.1 true ;",
+            "aws s3 cp $(basename -- $COUNTS .txt)_Output_Results ${JOB_OUTPUT_PREFIX}/8.POD/ --recursive ;"
+          ]
+        }
+      },
+      "End": true
+    }
+  }
+}

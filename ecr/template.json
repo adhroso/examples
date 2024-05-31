@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  # Used if we add repos with names prefixed by Project
+  # Project:
+  #   Type: String
+  AccountId:
+    Type: String
+  
+
+Resources:
+  NfsSchedularRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: 'pd-nfs-schedular'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - ecr:BatchCheckLayerAvailability
+            - ecr:BatchGetImage
+            - ecr:CompleteLayerUpload
+            - ecr:Describe*
+            - ecr:GetDownloadUrlForLayer
+            - ecr:GetLifecyclePolicy*
+            - ecr:GetRepositoryPolicy
+            - ecr:InitiateLayerUpload
+            - ecr:List*
+            - ecr:PutImage
+            - ecr:StartImageScan
+            - ecr:StartLifecyclePolicyPreview
+            - ecr:UploadLayerPart
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AccountId}:root
+    
+  NfsExecutorRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: 'pd-nfs-executor'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - ecr:BatchCheckLayerAvailability
+            - ecr:BatchGetImage
+            - ecr:CompleteLayerUpload
+            - ecr:Describe*
+            - ecr:GetDownloadUrlForLayer
+            - ecr:GetLifecyclePolicy*
+            - ecr:GetRepositoryPolicy
+            - ecr:InitiateLayerUpload
+            - ecr:List*
+            - ecr:PutImage
+            - ecr:StartImageScan
+            - ecr:StartLifecyclePolicyPreview
+            - ecr:UploadLayerPart
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AccountId}:root
+
+  TapToxRNASeqRepo:
+      Type: AWS::ECR::Repository
+      Properties:
+        RepositoryName: 'rnaseq'
+        ImageScanningConfiguration:
+          ScanOnPush: true
+        RepositoryPolicyText:
+          Version: '2012-10-17'
+          Statement:
+            - Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:Describe*
+              - ecr:GetDownloadUrlForLayer
+              - ecr:GetLifecyclePolicy*
+              - ecr:GetRepositoryPolicy
+              - ecr:InitiateLayerUpload
+              - ecr:List*
+              - ecr:PutImage
+              - ecr:StartImageScan
+              - ecr:StartLifecyclePolicyPreview
+              - ecr:UploadLayerPart
+              - ecr:DeleteRepository
+              - ecr:BatchDeleteImage
+              Effect: Allow
+              Principal:
+                AWS:
+                  - !Sub arn:aws:iam::${AccountId}:root

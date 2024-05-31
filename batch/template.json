@@ -1,0 +1,241 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "project batch infrastructure",
+    "Parameters": {
+        "ToxInstanceName": {
+            "Type": "String",
+            "Description": "Name of the Batch scheduler Instance"
+        },
+        "Project": {
+            "Type": "String",
+            "Description": "Name of the project"
+        },
+        "ResourceOwner": {
+            "Type": "String",
+            "Description": "Owner of the resources"
+        },
+        "DeployedBy": {
+            "Type": "String",
+            "Description": "Name of the Deployer"
+        },
+        "ToxComputeEnv": {
+            "Type": "String",
+            "Description": "scheduler ComputeENV Name"
+        },
+        "ToxQueueName": {
+            "Type": "String",
+            "Description": "Name of the Queue that to be create",
+            "Default": "scheduler-Queue"
+        },
+        "ToxAMI": {
+            "Type": "AWS::EC2::Image::Id",
+            "Description": "AMI for to use scheduler batch ComputeENV"
+        },
+        "BatchServiceRole": {
+            "Type": "String",
+            "Description": "batch service role that to use in batch ComputeENV"
+        },
+        "InstanceRole": {
+            "Type": "String",
+            "Description": "Instance role for to use batch ComputeENV"
+        },
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "EC2 key for to access batch instance when requried to connect"
+        },
+        "JobRoleARN": {
+            "Type": "String",
+            "Description": "Job role ARN to use in Batch job definition"
+        },
+        "SgName": {
+            "Type": "String",
+            "Description": "batch security group name"
+        }
+    },
+    "Resources": {
+       "BatchSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupName": {
+                    "Ref": "SgName"
+                },
+                "GroupDescription": "SG for AWS Batch",
+                "SecurityGroupEgress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "IpProtocol": "-1"
+                    }
+                ],
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "10.35.12.0/24",
+                        "IpProtocol": "tcp",
+                        "FromPort": "22",
+                        "ToPort": "22"
+                    },
+                    {
+                        "CidrIp": "10.24.8.0/24",
+                        "IpProtocol": "tcp",
+                        "FromPort": "22",
+                        "ToPort": "22"
+                    },
+                    {
+                        "CidrIp": "10.24.4.0/10",
+                        "FromPort": 22,
+                        "IpProtocol": "tcp",
+                        "ToPort": 22
+                    }
+                ],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "ProdVPCV1"
+                    }
+                }
+            }
+        },
+        "PriorityCE": {
+            "Type": "AWS::Batch::ComputeEnvironment",
+            "Properties": {
+                "Type": "MANAGED",
+                "ServiceRole": {
+                    "Ref": "BatchServiceRole"
+                },
+                "ComputeEnvironmentName": {
+                    "Ref": "ToxComputeEnv"
+                },
+                "ComputeResources": {
+                    "MinvCpus": 0,
+                    "DesiredvCpus": 256,
+                    "MaxvCpus": 2000,
+                    "AllocationStrategy": "BEST_FIT",
+                    "SecurityGroupIds": [
+                        {
+                            "Ref": "BatchSecurityGroup"
+                        }
+                    ],
+                    "Type": "EC2",
+                    "Subnets": [
+                        {
+                            "Fn::ImportValue": {
+                                "Fn::Sub": "PrivateSubnetFiveV1"
+                            }
+                        },
+                        {
+                            "Fn::ImportValue": {
+                                "Fn::Sub": "PrivateSubnetThreeV1"
+                            }
+                        }
+                    ],
+                    "ImageId": {
+                        "Ref": "ToxAMI"
+                    },
+                    "InstanceRole": {
+                        "Ref": "InstanceRole"
+                    },
+                    "InstanceTypes": [
+                        "c5.12xlarge",
+						"c5.18xlarge",
+						"c5.24xlarge",
+						"c5.2xlarge",
+						"c5.4xlarge",
+						"c5.9xlarge",
+						"c5.large",
+						"c5.metal",
+						"c5.xlarge",
+						"c5a.12xlarge",
+						"c5a.16xlarge",
+						"c5a.24xlarge",
+						"c5a.2xlarge",
+						"c5a.4xlarge",
+						"c5a.8xlarge",
+						"c5a.large",
+						"c5a.xlarge",
+						"c5ad.12xlarge",
+						"c5ad.16xlarge",
+						"c5ad.24xlarge",
+						"c5ad.2xlarge",
+						"c5ad.4xlarge",
+						"c5ad.8xlarge",
+						"c5ad.large",
+						"c5ad.xlarge",
+						"c5d.12xlarge",
+						"c5d.18xlarge",
+						"c5d.24xlarge",
+						"c5d.2xlarge",
+						"c5d.4xlarge",
+						"c5d.9xlarge",
+						"c5d.large",
+						"c5d.metal",
+						"c5d.metal",
+						"c5d.xlarge",
+						"c5n.18xlarge",
+						"c5n.2xlarge",
+						"c5n.4xlarge",
+						"c5n.9xlarge",
+						"c5n.large",
+						"c5n.metal",
+						"c5n.metal",
+						"c5n.xlarge",
+						"c6i.12xlarge",
+						"c6i.16xlarge",
+						"c6i.24xlarge",
+						"c6i.2xlarge",
+						"c6i.32xlarge",
+						"c6i.4xlarge",
+						"c6i.8xlarge",
+						"c6i.large",
+						"c6i.metal",
+						"c7a.12xlarge",
+						"c7a.16xlarge",
+						"c7a.24xlarge",
+						"c7a.2xlarge",
+						"c7a.32xlarge",
+						"c7a.48xlarge",
+						"c7a.4xlarge",
+						"c7a.8xlarge",
+						"c7a.large",
+						"c7a.medium",
+						"c7a.metal-48xl"
+                    ],
+                    "Ec2KeyPair": {
+                        "Ref": "KeyName"
+                    },
+                    "Tags": {
+                        "Name": {
+                            "Ref": "ToxInstanceName"
+                        },
+                        "Project": {
+                            "Ref": "Project"
+                        },
+                        "ResourceOwner": {
+                            "Ref": "ResourceOwner"
+                        },
+                        "DeployedBy": {
+                            "Ref": "DeployedBy"
+                        },
+                        "Scheduled": "autoscale"
+                    }
+                },
+                "State": "ENABLED"
+            }
+        },
+        "ToxPriorityQueue": {
+            "Type": "AWS::Batch::JobQueue",
+            "Properties": {
+                "ComputeEnvironmentOrder": [
+                    {
+                        "Order": 1,
+                        "ComputeEnvironment": {
+                            "Ref": "Priority"
+                        }
+                    }
+                ],
+                "State": "ENABLED",
+                "Priority": 1,
+                "JobQueueName": {
+                    "Ref": "ToxQueueName"
+                }
+            }
+        }
+    }
+}

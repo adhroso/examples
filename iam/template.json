@@ -1,0 +1,937 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: IAM Roles and policies for project
+
+Parameters:
+  EnvShortcode:
+    Description: environment short name
+    Type: String
+  Project:
+    Description: lower case project name
+    Type: String
+  UtilityAccountId:
+    Type: String
+
+Conditions:
+  IsSandbox: !Equals [ !Ref EnvShortcode, sb ]
+
+
+Resources:
+  MiscellaneousPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${Project}-misc
+      Description: !Sub "Policy for ${Project}"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          # - Effect: Allow
+          #   Action: "*"
+          #   Resource: "*"          
+          - Effect: Allow
+            Action:
+              - acm:DescribeCertificate
+              - acm:GetCertificate
+              - acm:List*
+            Resource: "*"
+
+          # - Effect: Allow
+          #   Action:
+          #     - iam:Get*
+          #   Resource: "*"
+          - Effect: Allow
+            Action:
+              - iam:*
+            Resource: "*"
+            
+          - Effect: Allow
+            Action:
+              - ec2:AllocateAddress
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - ec2:AssociateAddress
+              - ec2:ReleaseAddress
+              - ec2:DisassociateAddress
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:ResourceTag/Project: ${aws:PrincipalTag/Project}    
+
+          - Effect: Allow
+            Action:
+              - ssm:DescribeParameters
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - ssm:*
+            Resource:
+              - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Project}-*
+              - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Project}/*
+
+          - Effect: Allow
+            Action:
+              - s3:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - codebuild:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - codecommit:*
+            Resource:
+              - "*"
+          # - Effect: Allow
+          #   Action:
+          #     - s3:ListAllMyBuckets
+          #     - s3:CreateBucket
+          #     - s3:ListBucket
+          #     - s3:PutObject*
+          #     - s3:DeleteObject*
+          #   Resource:
+          #     - "*"
+
+          # - Effect: Allow
+          #   Action:
+          #     - s3:AbortMultipartUpload
+          #     - s3:GetBucketLocation
+          #     - s3:GetObject
+          #     - s3:ListBucket
+          #     - s3:ListBucketMultipartUploads
+          #     - s3:ListMultipartUploadParts
+          #     - s3:PutObject
+          #   Resource:
+          #     - "arn:aws:s3:::cf-templates*"
+          #     - "arn:aws:s3:::cf-templates*/*"
+
+          # - Effect: Allow
+          #   Action:
+          #     - s3:*BucketWebsite
+          #     - s3:*BucketReplicationConfiguration
+          #     - s3:Get*
+          #     - s3:GetObject*
+          #     - s3:List*
+          #     - s3:PutObject*
+          #     - s3:DeleteObject*
+          #   Resource:
+          #     - !Sub arn:aws:s3:::${EnvShortcode}-${Project}
+          #     - !Sub arn:aws:s3:::${EnvShortcode}-${Project}/*
+          #     - !Sub arn:aws:s3:::${EnvShortcode}-${Project}-*
+          #     - !Sub arn:aws:s3:::${EnvShortcode}-${Project}-*/*
+
+          - Effect: Allow
+            Action: cloudformation:*
+            Resource: "*"
+
+          # - Effect: Allow
+          #   Action: cloudformation:List*
+          #   Resource: "*"
+
+          # - Effect: Allow
+          #   Action: cloudformation:*
+          #   Resource:
+          #     - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${Project}
+          #     - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${Project}-*
+
+          # - Effect: Deny
+          #   Action:
+          #     - cloudformation:*
+          #   Resource:
+          #     - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${Project}-infrastructure
+          #     - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${Project}-infrastructure-*
+
+          - Effect: Allow
+            Action:
+              - autoscaling:*
+            Resource: 
+              - "*"     
+
+          # - Effect: Allow
+          #   Action:
+          #     - autoscaling:*
+          #   Resource: 
+          #     - !Sub arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:launchConfiguration:*:launchConfigurationName/*
+          #     - "*"     
+
+          #          - Effect: Allow
+          #            Action:
+          #              - iam:ListServerCertificates
+          #            Resource: "*"
+
+          #          - Effect: Allow
+          #            Action:
+          #              - lambda:ListEventSourceMappings
+          #            Resource: "*"
+          - Action:
+              - events:*
+            Effect: Allow
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - route53:Get*
+              - route53:List*
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - route53:ChangeResourceRecordSets
+            Resource:
+              # sb.research.corteva.com
+              - arn:aws:route53:::hostedzone/Z3T7B9VAISJLGN
+
+              # dev.research.corteva.com
+              - arn:aws:route53:::hostedzone/Z2GG9NP4X8BICK
+
+              # qa.research.corteva.com
+              - arn:aws:route53:::hostedzone/Z2CY2BJTDDGSAP
+
+              # pd.research.corteva.com
+              - arn:aws:route53:::hostedzone/Z2FP0SJLRO2ZRW
+
+          - Action:
+              - elasticloadbalancing:*
+            Effect: Allow
+            Resource:
+              - !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener/*/${Project}*/*/*"
+              - !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:listener-rule/*/${Project}*/*/*/*"
+              - !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:loadbalancer/*/${Project}*/*"
+              - !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/${Project}*/*"
+          - Effect: Allow
+            Action:
+              - batch:RegisterJobDefinition
+              - batch:DeregisterJobDefinition
+              - batch:CancelJob
+              - batch:SubmitJob
+              - batch:TerminateJob
+            Resource:
+              - Fn::Sub: arn:aws:batch:us-east-1:${AWS::AccountId}:job-definition/${Project}-*
+              - Fn::Sub: arn:aws:batch:us-east-1:${AWS::AccountId}:job-queue/${Project}-*
+
+          - Effect: Allow
+            Action:
+              - batch:*
+              - batch:*
+            Resource: '*'
+          # - Effect: Allow
+          #   Action:
+          #     - batch:List*
+          #     - batch:Describe*
+          #   Resource: '*'
+          - Effect: Allow
+            Action:
+              - states:*
+            Resource: '*'  
+          # - Effect: Allow
+          #   Action:
+          #     - states:Describe*
+          #     - states:Get*
+          #     - states:List*
+          #     - states:Send*
+          #     - states:TagResource
+          #     - states:UntagResource
+          #   Resource: '*'
+          # - Effect: Allow
+          #   Action:
+          #     - states:CreateStateMachine
+          #     - states:CreateStateMachineAlias
+          #     - states:DeleteteStateMachine
+          #     - states:DeleteStateMachineAlias
+          #     - states:DeleteStateMachineVersion
+          #     - states:UpdateStateMachineAlias
+          #     - states:UpdateStateMachineVersion
+          #     - states:PublishStateMachineVersion
+          #     - states:Start*
+          #     - states:Stop*
+          #   Resource: 
+          #     - Fn::Sub: arn:aws:states:us-east-1:${AWS::AccountId}:stateMachine:${Project}-*
+          #     - Fn::Sub: arn:aws:states:us-east-1:${AWS::AccountId}:stateMachine:${Project}-*
+          # - Effect: Allow
+          #   Action:
+          #     - states:CreateActivity
+          #     - states:DeleteActivity
+          #   Resource: 
+          #     - Fn::Sub: arn:aws:states:us-east-1:${AWS::AccountId}:activity:${Project}-*
+          # - Effect: Allow
+          #   Action:
+          #     - sqs:*
+          #   Resource:
+          #     - !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${Project}-*"
+          - Effect: Allow
+            Action:
+              - sqs:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - sns:*
+            Resource:
+              - "*"
+
+  ECRPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${Project}-CortevaProjectECR'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Resource:
+              - Fn::Sub: "arn:aws:iam::${AWS::AccountId}:role/${Project}-deploy"
+          - Action:
+              - ecr:Delete*
+              - ecr:Set*
+              - ecr:Create*
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:Describe*
+              - ecr:GetDownloadUrlForLayer
+              - ecr:GetLifecyclePolicy*
+              - ecr:GetRepositoryPolicy
+              - ecr:InitiateLayerUpload
+              - ecr:List*
+              - ecr:PutImage
+              - ecr:StartImageScan
+              - ecr:StartLifecyclePolicyPreview
+              - ecr:UploadLayerPart
+            Effect: Allow
+            Resource:
+              - Fn::Sub: "arn:aws:ecr:${AWS::Region}:${UtilityAccountId}:repository/${Project}-*"
+              - Fn::Sub: "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${Project}-*"
+              - Fn::Sub: "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/pd-nfs-schedular"
+              - Fn::Sub: "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/pd-nfs-executor"
+          - Action:
+              - ecr:GetAuthorizationToken
+              - ecr:DescribeRepositories
+            Effect: Allow
+            Resource: "*"
+            
+          - Effect: Allow
+            Action:
+              - ecr:*
+            Resource:
+              - "*"
+
+
+  Ec2Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${Project}-CortevaProjectEC2
+      Description: Corteva universal project policy for EC2 and associated compute services
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:CreateKeyPair
+              - ec2:DeleteKeyPair
+              - ec2:ImportKeyPair
+            Resource:
+              - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:key-pair/${!aws:PrincipalTag/Project}-*
+
+          - Effect: Allow
+            Action:
+              - compute-optimizer:Describe*
+              - compute-optimizer:Get*
+              - ec2:CreateFleet
+              - ec2:CreateLaunchTemplate
+              - ec2:CreateNetworkInterface
+              - ec2:CreatePlacementGroup
+              - ec2:CreateSecurityGroup
+              - ec2:CreateVolume
+              - ec2:Describe*
+              - ec2:GetDefaultCreditSpecification
+              - ec2:GetEbsDefaultKmsKeyId
+              - ec2:GetEbsEncryptionByDefault
+              - ec2:GetManagedPrefixListAssociations
+              - ec2:GetManagedPrefixListEntries
+              - ec2:RequestSpot*
+              - elasticloadbalancing:DescribeLoadBalancer*
+              - elasticloadbalancing:DescribeTargetGroup*
+              - iam:ListInstanceProfiles
+              - iam:ListRoles
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref AWS::Region
+          - Effect: Allow
+            Action:
+              - ec2:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - codebuild:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - codecommit:*
+            Resource:
+              - "*"            
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:RunInstances
+          #   Resource:
+          #     - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/*
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:RunInstances
+          #   Resource:
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:elastic-gpu/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:instance/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:network-interface/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:key-pair/${!aws:PrincipalTag/Project}-*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:security-group/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:volume/*
+          #     - !Sub arn:aws:elastic-inference:*:${AWS::AccountId}:elastic-inference-accelerator/*
+          #   Condition:
+          #     StringEqualsIfExists:
+          #       aws:ResourceTag/Project: ${aws:PrincipalTag/Project}
+          #     StringEquals:
+          #       aws:RequestedRegion: !Ref AWS::Region
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:RunInstances
+          #   Resource:
+          #     - !Sub arn:aws:ec2:${AWS::Region}::image/*
+          #   Condition:
+          #     StringEquals:
+          #       ec2:Owner:
+          #         - amazon
+          #         - "099720109477" # Canonical Ltd.
+          #         - "309956199498" # RedHat (RHEL)
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:RunInstances
+          #   Resource:
+          #     - !Sub arn:aws:ec2:${AWS::Region}::image/*
+          #   Condition:
+          #     StringEquals:
+          #       aws:ResourceTag/Project: ${aws:PrincipalTag/Project}
+
+          # - Effect: Allow
+          #   Action:
+          #     - iam:PassRole
+          #   Resource:
+          #     - !Sub arn:aws:iam::${AWS::AccountId}:role/${!aws:PrincipalTag/Project}
+          #     - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/spotfleet.amazonaws.com/AWSServiceRoleForEC2Spot
+          #     - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/spotfleet.amazonaws.com/AWSServiceRoleForEC2SpotFleet
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:CreateSnapshot*
+          #   Resource:
+          #     - !Sub arn:aws:ec2:${AWS::Region}::snapshot/*
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:CreateImage
+          #   Resource:
+          #     - !Sub arn:aws:ec2:${AWS::Region}::image/*
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:AssignIpv6Addresses
+          #     - ec2:AssignPrivateIpAddresses
+          #     - ec2:AssociateIamInstanceProfile
+          #     - ec2:AttachNetworkInterface
+          #     - ec2:AttachVolume
+          #     - ec2:AuthorizeSecurityGroup*
+          #     - ec2:CancelSpot*
+          #     - ec2:CreateImage
+          #     - ec2:CreateLaunchTemplateVersion
+          #     - ec2:CreateSnapshot*
+          #     - ec2:DeleteFleets
+          #     - ec2:DeleteLaunchTemplate*
+          #     - ec2:DeleteNetworkInterface
+          #     - ec2:DeletePlacementGroup
+          #     - ec2:DeleteSecurityGroup
+          #     - ec2:DeleteSnapshot
+          #     - ec2:DeleteTags
+          #     - ec2:DeleteVolume
+          #     - ec2:DeregisterImage
+          #     - ec2:DetachNetworkInterface
+          #     - ec2:DescribeInstances
+          #     - ec2:DetachVolume
+          #     - ec2:DisassociateIamInstanceProfile
+          #     - ec2:GetConsoleOutput
+          #     - ec2:GetConsoleScreenshot
+          #     - ec2:GetLaunchTemplateData
+          #     - ec2:GetPasswordData
+          #     - ec2:ModifyFleet
+          #     - ec2:ModifyImageAttribute
+          #     - ec2:ModifyInstanceAttribute
+          #     - ec2:ModifyInstanceCreditSpecification
+          #     - ec2:ModifyInstanceMetadataOptions
+          #     - ec2:ModifyLaunchTemplate
+          #     - ec2:ModifyNetworkInterfaceAttribute
+          #     - ec2:ModifySnapshotAttribute
+          #     - ec2:ModifySpotFleetRequest
+          #     - ec2:ModifyVolume*
+          #     - ec2:RebootInstances
+          #     - ec2:ReplaceIamInstanceProfileAssociation
+          #     - ec2:ResetImageAttribute
+          #     - ec2:ResetInstanceAttribute
+          #     - ec2:ResetNetworkInterfaceAttribute
+          #     - ec2:ResetSnapshotAttribute
+          #     - ec2:RevokeSecurityGroup*
+          #     - ec2:RunInstances
+          #     - ec2:SendDiagnosticInterrupt
+          #     - ec2:StartInstances
+          #     - ec2:StopInstances
+          #     - ec2:TerminateInstances
+          #     - ec2:UnassignIpv6Addresses
+          #     - ec2:UnassignPrivateIpAddresses
+          #     - ec2:UpdateSecurityGroup*
+          #   Resource: "*"
+          #   Condition:
+          #     StringEquals:
+          #       aws:ResourceTag/Project: ${aws:PrincipalTag/Project}
+          #       aws:RequestedRegion: !Ref AWS::Region
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:CreateTags
+          #   Resource:
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:elastic-gpu/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:export-instance-task/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:fleet/*
+          #     - arn:aws:ec2:*::image/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:instance/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:key-pair/${!aws:PrincipalTag/Project}-*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:launch-template/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:network-interface/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:placement-group/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:security-group/*
+          #     - arn:aws:ec2:*::snapshot/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:spot-fleet-request/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:spot-instances-request/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:volume/*
+          #     - !Sub arn:aws:elastic-inference:*:${AWS::AccountId}:elastic-inference-accelerator/*
+          #   Condition:
+          #     StringEqualsIfExists:
+          #       aws:ResourceTag/Project: ${aws:PrincipalTag/Project}
+          #     ForAllValues:StringNotEqualsIgnoreCase:
+          #       aws:TagKeys: Project
+          #     StringEquals:
+          #       aws:RequestedRegion: !Ref AWS::Region
+
+          # - Effect: Allow
+          #   Action:
+          #     - ec2:CreateTags
+          #   Resource:
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:elastic-gpu/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:export-instance-task/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:fleet/*
+          #     - arn:aws:ec2:*::image/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:instance/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:key-pair/${!aws:PrincipalTag/Project}-*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:launch-template/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:network-interface/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:placement-group/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:security-group/*
+          #     - arn:aws:ec2:*::snapshot/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:spot-fleet-request/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:spot-instances-request/*
+          #     - !Sub arn:aws:ec2:*:${AWS::AccountId}:volume/*
+          #     - !Sub arn:aws:elastic-inference:*:${AWS::AccountId}:elastic-inference-accelerator/*
+          #   Condition:
+          #     StringEqualsIfExists:
+          #       aws:ResourceTag/Project: ${aws:PrincipalTag/Project}
+          #     ForAnyValue:StringEquals:
+          #       aws:TagKeys: Project
+          #     StringEquals:
+          #       aws:RequestedRegion: !Ref AWS::Region
+          #       aws:RequestTag/Project: ${aws:PrincipalTag/Project}
+
+  APIDeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: 
+        Fn::Sub: "${Project}-API-Deploy-Policy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action: 
+              - ecs:*
+            Resource:
+              - "*"
+          # - Effect: Allow
+          #   Action:
+          #     - ecs:CreateCluster
+          #     - ecs:CreateService
+          #     - ecs:Describe*
+          #     - ecs:DeregisterContainerInstance
+          #     - ecs:DeregisterTaskDefinition
+          #     - ecs:DiscoverPollEndpoint
+          #     - ecs:List*
+          #     - ecs:RegisterContainerInstance
+          #     - ecs:RegisterTaskDefinition
+          #   Resource:
+          #     - "*"
+          # - Effect: Allow
+          #   Action: 
+          #     - ecs:TagResource
+          #     - ecs:UntagResource
+          #   Resource:
+          #     - !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${Project}*"
+          # - Effect: Allow
+          #   Action:
+          #     - ecs:*
+          #   Resource:
+          #     - !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:${Project}*"
+          - Effect: Allow
+            Action:
+              - elasticloadbalancing:Describe*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - elasticloadbalancing:*
+            Resource:
+              - !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:${Project}*"
+          # - Effect: Allow
+          #   Action:
+          #     - logs:CreateLogGroup
+          #     - logs:CreateLogStream
+          #     - logs:DeleteDestination
+          #     - logs:DeleteLogGroup
+          #     - logs:DeleteLogStream
+          #     - logs:DeleteResourcePolicy
+          #     - logs:DeleteRetentionPolicy
+          #     - logs:DeleteSubscriptionFilter
+          #     - logs:DescribeLog*
+          #     - logs:DescribeResourcePolicies
+          #     - logs:DescribeSubscriptionFilters
+          #     - logs:FilterLogEvents
+          #     - logs:GetLogEvents
+          #     - logs:ListTagsLogGroup
+          #     - logs:Put*
+          #     - logs:TagLogGroup
+          #     - logs:TestMetricFilter
+          #     - logs:UntagLogGroup
+          #   Resource:
+          #     - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*/${Project}*"
+          #     - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group::log-stream:"
+          # - Effect: Allow
+          #   Action:
+          #     - logs:*LogDelivery
+          #     - logs:PutResourcePolicy
+          #     - logs:DescribeResourcePolicies
+          #     - logs:ListLogDeliveries
+          #   Resource:
+          #     - "*"
+          - Effect: Allow
+            Action:
+              - logs:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - autoscaling:*
+            Resource:
+              - !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:${Project}*"
+          # borrowed from a policy which had this pass role enabled, probably not needed atm
+          # - Effect: Allow
+          #   Action:
+          #     - iam:PassRole
+          #   Resource:
+          #     - !Sub "arn:aws:iam::${AWS::AccountId}:role/${Project}-API"
+          #     - !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/rds.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_RDSCluster"
+          - Effect: Allow
+            Action:
+              - events:DeleteRule
+              - events:DescribeRule
+              - events:List*
+              - events:PutRule
+              - events:PutTargets
+              - events:RemoveTargets
+            Resource:
+              - !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/${Project}*"
+          - Effect: Allow
+            Action:
+              - "apigateway:POST"
+              - "apigateway:PATCH"
+              - "apigateway:PUT"
+              - "apigateway:GET"
+              - "apigateway:UpdateRestApiPolicy"
+            Resource:
+              - "arn:aws:apigateway:us-east-1::/restapis"
+              - "arn:aws:apigateway:us-east-1::/restapis/*"
+              - "arn:aws:apigateway:us-east-1::/v2/apis*"
+              - "arn:aws:apigateway:us-east-1::/v2/apis/*"
+              - "arn:aws:apigateway:us-east-1::/apis*"
+              - "arn:aws:apigateway:us-east-1::/usageplans*"
+              - "arn:aws:apigateway:us-east-1::/usageplans/*"
+              - "arn:aws:apigateway:us-east-1::/vpclinks"
+              - "arn:aws:apigateway:us-east-1::/vpclinks/*"
+              - "arn:aws:apigateway:us-east-1::/tags*"
+              - "arn:aws:apigateway:us-east-1::/tags/*"
+              - "arn:aws:apigateway:us-east-1::/domainnames*"
+              # may end up putting api domains here
+              # - !Sub "arn:aws:apigateway:us-east-1::/domainnames/${DomainName}"
+              # - !Sub "arn:aws:apigateway:us-east-1::/domainnames/${DomainName}/*"
+          - Effect: Allow
+            Action:
+              - "apigateway:DELETE"
+              - "apigateway:PATCH"
+            Resource:
+              - "arn:aws:apigateway:us-east-1::/usageplans/*"
+              - "arn:aws:apigateway:us-east-1::/domainnames*"
+              - "arn:aws:apigateway:us-east-1::/v2/apis*"
+              - "arn:aws:apigateway:us-east-1::/apis*"
+              - "arn:aws:apigateway:us-east-1::/vpclinks*"
+              - "arn:aws:apigateway:us-east-1::/restapis*"
+              - "arn:aws:apigateway:us-east-1::/tags*"
+          - Effect: Allow
+            Action:
+              - cloudwatch:List*
+              - cloudwatch:Describe*
+              - cloudwatch:Get*
+              - cloudwatch:PutMetricAlarm
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - kms:ListAliases
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - iam:ListRoles
+              - iam:ListInstanceProfiles
+              - iam:ListServerCertificates
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - application-autoscaling:*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - cloudfront:Create*
+              - cloudfront:Get*
+              - cloudfront:List*
+              - cloudfront:Update*
+              - cloudfront:TagResource
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - sns:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - sqs:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - ssm:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - ec2:*
+            Resource: '*'            
+          # - Effect: Allow
+          #   Action:
+          #     - sqs:Create*
+          #     - sqs:Add*
+          #     - sqs:Get*
+          #     - sqs:List*
+          #     - sqs:Set*
+          #     - sqs:Tag*
+            # Resource:
+            #   - !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${Project}*"
+          - Effect: Allow
+            Action:
+              - lambda:Get*
+              - lambda:List*
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - lambda:CreateEventSourceMapping
+            Resource:
+              - "*"
+            Condition:
+              ArnLike:
+                lambda:FunctionArn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Project}*
+          - Effect: Allow
+            Action:
+              - lambda:*
+            Resource:
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Project}*"
+          - Effect: Allow
+            Action:
+              - rds:Describe*
+              - rds:List*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - rds:AddRoleToDBInstance
+              - rds:AddTagsToResource
+              - rds:ApplyPendingMaintenanceAction
+              - rds:CreateDBCluster
+              - rds:CreateDBInstance*
+              - rds:CreateDBSnapshot
+              - rds:DeleteDBInstance
+              - rds:DownloadDBLogFilePortion
+              - rds:ModifyDBInstance
+              - rds:RebootDBInstance
+              - rds:RemoveRoleFromDBInstance
+              - rds:RemoveTagsFromResource
+              - rds:RestoreDBInstanceFromDBSnapshot
+              - rds:StopDBInstance
+            Resource:
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${Project}*"
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${Project}*"
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster-pg:${Project}*"
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${Project}*"
+          - Effect: Allow
+            Action:
+              - rds:*DBSnapshot
+            Resource:
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:snapshot:${Project}*"
+          - Effect: Allow
+            Action:
+              - rds:AddTagsToResource
+              - rds:*DBInstance
+            Resource:
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:application-autoscaling-*"
+            Condition:
+              StringLikeIfExists:
+                rds:cluster-tag/Project: 
+                  Fn::Sub: "${Project}"
+                aws:RequestTag/Project: 
+                  Fn::Sub: "${Project}"
+                aws:RequestTag/application-autoscaling:resourceId: 
+                  Fn::Sub: "cluster:${Project}-*"
+                aws:ResourceTag/application-autoscaling:resourceId: 
+                  Fn::Sub: "cluster:${Project}-*"
+              Bool:
+                aws:ViaAWSService: true
+          - Effect: Allow
+            Action:
+              - rds:AddTagsToResource
+              - rds:CreateDBCluster
+              - rds:ModifyDBInstance
+              - rds:RemoveTagsFromResource
+              - rds:RestoreDBInstanceFromDBSnapshot
+            Resource:
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:subgrp:${Project}*"
+          - Effect: Allow
+            Action:
+              - events:DisableRule
+              - events:EnableRule
+            Resource:
+              - !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/${Project}*"
+          - Effect: Allow
+            Action:
+              - rds:*DBCluster
+              - rds:*DBClusterParameterGroup
+            Resource:
+              - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster-pg:${Project}*"
+          - Effect: Allow
+            Action:
+              - rds:*DBClusterSnapshot
+              - rds:ModifyDBClusterSnapshotAttribute
+            Resource:
+              - !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${Project}*'
+              - !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster-snapshot:${Project}*'
+
+
+  ApplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Project}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ecs.amazonaws.com
+                - ecs-tasks.amazonaws.com
+                - lambda.amazonaws.com
+                - batch.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref Ec2Policy
+        - !Ref MiscellaneousPolicy
+        - !Ref ECRPolicy
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+  ApplicationEc2Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ApplicationRole
+      InstanceProfileName: !Ref Project
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Project}-deploy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Ref AWS::AccountId
+                - arn:aws:iam::1188203548375:role/RUNNER-Profile
+              Service:
+                - cloudformation.amazonaws.com
+                - elasticbeanstalk.amazonaws.com
+                - batch.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref Ec2Policy
+        - !Ref MiscellaneousPolicy
+        - !Ref APIDeployPolicy
+        - !Ref ECRPolicy
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+  DeveloperRole:
+    Type: AWS::IAM::Role
+    Condition: IsSandbox
+    Properties:
+      RoleName: !Sub ${Project}-${EnvShortcode}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated:
+                - !Sub arn:aws:iam::${AWS::AccountId}:saml-provider/AzureAD_SAML
+            Action: sts:AssumeRoleWithSAML
+            Condition:
+              StringEquals:
+                SAML:aud: https://signin.aws.amazon.com/saml
+      ManagedPolicyArns:
+        - !Ref Ec2Policy
+        - !Ref MiscellaneousPolicy
+        - !Ref APIDeployPolicy
+        - !Ref ECRPolicy
+      MaxSessionDuration: 43200
+      Tags:
+        - Key: Project
+          Value: !Ref Project
