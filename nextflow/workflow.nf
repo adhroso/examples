@@ -61,14 +61,14 @@ def timestamp = timestamp_fmt.format(now)
 def scape_username = System.getProperty("user.name")
 //String hostname = java.net.InetAddress.getLocalHost().getHostName();
 
-my_LIMS_PSR_URL = 'https://psr.research.phibred.com/v4/api/requests/' + params.LIMS_ID
+my_LIMS_url_URL = 'https://url.research.phibred.com/v4/api/requests/' + params.LIMS_ID
 
 
 // FOR DEBUGGING
 // println timestamp
 // println scape_username
 // println hostname
-// println "${my_LIMS_PSR_URL}"
+// println "${my_LIMS_url_URL}"
 
 my_s3_input_fastq_timestamp = params.s3_input_fastq_timestamp
 
@@ -118,67 +118,67 @@ process get_software_versions {
     """
 }
 
-// Step 1.1 Sample_ids_from_psr
+// Step 1.1 Sample_ids_from_url
 
 if (params.include_samples_file) {
    opt_file = file(params.include_samples_file)
 
    // WE GET Subset of Samples
    
-   process get_SUBSET_samples_from_PSR {
+   process get_SUBSET_samples_from_url {
 
-    publishDir "${params.outdir}/1_samples_psr", mode:'copy', pattern:'*.txt'
+    publishDir "${params.outdir}/1_samples_url", mode:'copy', pattern:'*.txt'
     tag "Get_Subset_Sample_IDs"
 
     input:
     file opt from opt_file
 
     output:
-    path "psr.txt" into records
+    path "url.txt" into records
     file ("*.txt")
 
     script:
     
     """
     cat ${opt} | perl -pe 's#\015##g' > temp_list.txt
-    curl --silent  -X GET ${my_LIMS_PSR_URL} -H "accept:application/json" | jq '.request.samples[].sample_id' | perl -pe 's#\"##g' > list_all_samples.txt
+    curl --silent  -X GET ${my_LIMS_url_URL} -H "accept:application/json" | jq '.request.samples[].sample_id' | perl -pe 's#\"##g' > list_all_samples.txt
 
     cat list_all_samples.txt temp_list.txt | sort | uniq -d > wanted_list.txt
 
     if [ -s wanted_list.txt ]; then    
-        cat wanted_list.txt | perl -pe 's#^#https://gsd.research.phibred.com/api/submit/#g'  > psr.txt
+        cat wanted_list.txt | perl -pe 's#^#https://gsd.research.phibred.com/api/submit/#g'  > url.txt
     fi
 
     """
-    } // end of process get_subset_samples_from_PSR
+    } // end of process get_subset_samples_from_url
 
 } else {
 
-  // WE GET ALL Samples from PSR for a LIMS_ID
+  // WE GET ALL Samples from url for a LIMS_ID
 
-   process get_ALL_samples_from_PSR {
+   process get_ALL_samples_from_s3 {
 
-    publishDir "${params.outdir}/1_samples_psr", mode:'copy', pattern:'*.txt'
+    publishDir "${params.outdir}/1_samples", mode:'copy', pattern:'*.txt'
     tag "Get_ALL_Sample_IDs"
 
     output:
-    path "psr.txt" into records
+    path "url.txt" into records
 
     script:
     """
-    curl --silent  -X GET ${my_LIMS_PSR_URL} -H "accept:application/json" | jq '.request.samples[].sample_id' | perl -pe 's#\"##g' | perl -pe 's#^#https://gsd.research.phibred.com/api/submit/#g'  > psr.txt
+    curl --silent  -X GET ${URL} -H "accept:application/json" | jq '.request.samples[].sample_id' | perl -pe 's#\"##g' | perl -pe 's#^#https://gsd.research.phibred.com/api/submit/#g'  > url.txt
     """
-    } // end process get_ALL_samples_from_PSR
+    } // end process get_ALL_samples_from_url
 }
 
 // Step - 1.2 Extract 
 
 process extract {
-    publishDir "${params.outdir}/2_CURL_psr", mode:'copy'
-    tag "CURL_SAMPLES_PSR"
+    publishDir "${params.outdir}/2_CURL_url", mode:'copy'
+    tag "CURL_SAMPLES_url"
 
     input:
-    path "psr.txt" from records
+    path "url.txt" from records
 
     output:
     path "s3_urls.txt" into curl_records_1
@@ -187,22 +187,22 @@ process extract {
 
     script:
     """
-    cp psr.txt paths.txt
+    cp url.txt paths.txt
     for path in \$(cat paths.txt); do
 	    curl --connect-timeout 18000  --retry 5  --silent -X POST \${path} 2>/dev/null | jq '.results_path' | perl -pe 's#\"\$#/#g' | perl -pe 's#\"##g' 
     done | tee s3_urls.txt
 
-    cat s3_urls.txt | perl -pe 's#.*/(\\S+)/#https://gsd.research.phibred.com/api/status/\$1#g' > job_urls.txt
+    cat s3_urls.txt | perl -pe 's#.*/(\\S+)/#https://url/here' > job_urls.txt
     """
 }
 
 
-// Process - 1.3 Check Data download from PSR job status
+// Process - 1.3 Check Data download from url job status
 
 
 process check_jobs {
-    publishDir "${params.outdir}/3_CURL_psr_jobs", mode:'copy'
-    tag "SLEEPING_FOR_PSR_DUMP"
+    publishDir "${params.outdir}/3_CURL_url_jobs", mode:'copy'
+    tag "SLEEPING_FOR_url_DUMP"
 
     errorStrategy 'retry'
     maxRetries 5
@@ -213,11 +213,11 @@ process check_jobs {
 
     output:
     path "*.txt"
-    path pass_s3_urls into get_S3_aws_psr
+    path pass_s3_urls into get_S3_aws_url
 
     script:
     """
-    aws_psr_job_stats.sh job_urls.txt > stdout_job_urls.txt
+    aws_url_job_stats.sh job_urls.txt > stdout_job_urls.txt
     cp  s3_urls.txt  pass_s3_urls
     """
 }
@@ -226,14 +226,14 @@ process check_jobs {
 
 process get_S3_urls {
     publishDir "${params.outdir}/4_get_s3_results", mode:'copy'
-    tag "Get_S3_URLS_PSR"
+    tag "Get_S3_URLS_url"
 
     input:
-    path pass_s3_urls from get_S3_aws_psr
+    path pass_s3_urls from get_S3_aws_url
 
     output:
     
-    path ("*.txt") into download_psr
+    path ("*.txt") into download_url
     path processed_urls
 
     script:
@@ -243,18 +243,18 @@ process get_S3_urls {
     """
 }
 
-// Step - 1.5 Dump data from PSR bucket to Scape bucket
+// Step - 1.5 Dump data from url bucket to Scape bucket
 
 process dump_S3 {
     label 'low_cm'
     publishDir "${params.outdir}/5_get_s3_dump", mode:'copy', pattern: "*S3_Copy_stats.txt"
 
-    tag "S3_COPY_from_PSR"
+    tag "S3_COPY_from_url"
     errorStrategy 'retry'
     maxRetries 5
 
     input:
-    path s3_url from download_psr.flatten()
+    path s3_url from download_url.flatten()
 
     output:
     path "*S3_Copy_stats.txt" into concat_S3_Paths
@@ -264,7 +264,7 @@ process dump_S3 {
     
     	"""
 	for path in \$(cat ${s3_url}); do
-	aws s3 cp \${path} s3://pd-nfs/scape/WORKSPACE/input_data/${scape_username}/${my_s3_input_fastq_timestamp}/ --exclude "*" --include "*single*" --recursive | tail -n 1  |  perl -pe 's#.*s3.*/(\\S+)-.*gz.* to (s3\\S+)#\$1\t\$2#g' >& ${s3_url.simpleName}_S3_Copy_stats.txt
+	aws s3 cp \${path} s3://input_data/${scape_username}/${my_s3_input_fastq_timestamp}/ --exclude "*" --include "*single*" --recursive | tail -n 1  |  perl -pe 's#.*s3.*/(\\S+)-.*gz.* to (s3\\S+)#\$1\t\$2#g' >& ${s3_url.simpleName}_S3_Copy_stats.txt
 	done
 	head -n 1 ${s3_url} >&  ${s3_url.simpleName}_S3_head_stats.txt
         """
@@ -616,7 +616,7 @@ process delete_S3_fq {
 
     script:
     """
-    aws s3 rm s3://pd-nfs/scape/WORKSPACE/input_data/${scape_username}/${my_s3_input_fastq_timestamp}/  --recursive >& ${timestamp}_delete_S3_objects.txt
+    aws s3 rm s3://input_data/${scape_username}/${my_s3_input_fastq_timestamp}/  --recursive >& ${timestamp}_delete_S3_objects.txt
     """
 }
 
@@ -634,7 +634,7 @@ workflow.onComplete {
 
 Please login first using the Corteva AWS ADFS Sign On - ${my_S3_adfs}
 
-Check your SCAPE PIPELINE Output at ${my_S3_Out_URL} 
+Check your PIPELINE Output at ${my_S3_Out_URL} 
 
 To download from S3 to On-Prem, do: aws s3 cp ${params.outdir} <your_onprem_location> --recursive
 
@@ -705,7 +705,7 @@ salmon_Quant_Version    ${params.Salmon_Quant_Version}
         sendMail {
             to "${params.email}"
             bcc "${params.admin}"
-            subject "${status} - ${params.LIMS_ID} - SCAPE Scheduler Prod - AWS PSR Workflow Completion"
+            subject "${status} - ${params.LIMS_ID} - SCAPE Scheduler Prod - AWS url Workflow Completion"
             attach   local_report
             body
             """
@@ -722,7 +722,7 @@ Execution Completed Successfully.
         sendMail {
             to "${params.email}"
             bcc "${params.admin}"
-            subject "${status} - ${params.LIMS_ID} - SCAPE from AWS PSR - Workflow Completion"
+            subject "${status} - ${params.LIMS_ID} - SCAPE from AWS url - Workflow Completion"
             attach "${workflow.launchDir}/.nextflow.log"
             body
             """
